@@ -108,7 +108,7 @@ public:
 template <typename F>
   requires std::is_trivially_copyable_v<std::invoke_result_t<F>>
 const std::optional<std::invoke_result_t<F>>
-timeout(std::chrono::seconds duration, F f) {
+timeout(std::chrono::milliseconds duration, F f) {
   pipe_fds p;
   using res_t = std::invoke_result_t<F>;
   if (auto subprocess = SubprocessHandle::fork(); subprocess.has_value()) {
