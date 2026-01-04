@@ -7,6 +7,7 @@
 #include <sys/wait.h>
 #include <type_traits>
 #include <unistd.h>
+#include <span>
 
 namespace {
 void throw_errno() { throw std::runtime_error(strerror(errno)); }
