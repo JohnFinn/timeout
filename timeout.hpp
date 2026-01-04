@@ -105,12 +105,12 @@ public:
 
 } // namespace
 
-template <typename F>
-  requires std::is_trivially_copyable_v<std::invoke_result_t<F>>
-const std::optional<std::invoke_result_t<F>>
-timeout(std::chrono::milliseconds duration, F f) {
+template <typename F, typename... Args>
+  requires std::is_trivially_copyable_v<std::invoke_result_t<F, Args...>>
+const std::optional<std::invoke_result_t<F, Args...>>
+timeout(std::chrono::milliseconds duration, F f, const Args&... args) {
   pipe_fds retval_pipe;
-  using res_t = std::invoke_result_t<F>;
+  using res_t = std::invoke_result_t<F, Args...>;
   if (auto subprocess = SubprocessHandle::fork(); subprocess.has_value()) {
     if (retval_pipe.poll_read(duration)) {
       return retval_pipe.deserialize<res_t>();
@@ -118,7 +118,7 @@ timeout(std::chrono::milliseconds duration, F f) {
     subprocess->kill();
     return std::nullopt;
   } else {
-    retval_pipe.serialize(f());
+    retval_pipe.serialize(f(args...));
     std::exit(0);
   }
 };
