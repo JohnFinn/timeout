@@ -109,16 +109,16 @@ template <typename F>
   requires std::is_trivially_copyable_v<std::invoke_result_t<F>>
 const std::optional<std::invoke_result_t<F>>
 timeout(std::chrono::milliseconds duration, F f) {
-  pipe_fds p;
+  pipe_fds retval_pipe;
   using res_t = std::invoke_result_t<F>;
   if (auto subprocess = SubprocessHandle::fork(); subprocess.has_value()) {
-    if (p.poll_read(duration)) {
-      return p.deserialize<res_t>();
+    if (retval_pipe.poll_read(duration)) {
+      return retval_pipe.deserialize<res_t>();
     }
     subprocess->kill();
     return std::nullopt;
   } else {
-    p.serialize(f());
+    retval_pipe.serialize(f());
     std::exit(0);
   }
 };
