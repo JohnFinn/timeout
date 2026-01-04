@@ -8,5 +8,5 @@ build: install
 test: build
     ./build/test --gtest_color=yes
 
-bench: build
+bench: test
     ./build/bench --benchmark_color=yes
