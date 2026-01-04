@@ -2,12 +2,15 @@
 #include <optional>
 #include <poll.h>
 #include <signal.h>
+#include <span>
+#include <stdexcept>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <tuple>
 #include <type_traits>
 #include <unistd.h>
-#include <span>
+#include <utility>
 
 namespace {
 void throw_errno() { throw std::runtime_error(strerror(errno)); }
@@ -101,6 +104,60 @@ public:
     read(buffer);
     return std::bit_cast<T>(buffer);
   }
+
+  template <typename... Ts> struct trivially_copyable_tuple;
+
+  template <> struct trivially_copyable_tuple<> {
+    auto to_tuple() const { return std::tuple{}; }
+  };
+
+  template <typename T, typename... Ts>
+  struct trivially_copyable_tuple<T, Ts...> {
+    T head;
+    trivially_copyable_tuple<Ts...> tail;
+
+    std::tuple<T, Ts...> to_tuple() const {
+      return std::tuple_cat(std::tuple{head}, tail.to_tuple());
+    }
+  };
+
+  static_assert(
+      std::is_trivially_copyable_v<trivially_copyable_tuple<int, int>>);
+
+  template <typename... Ts> struct make_trivially_copyable_tuple;
+
+  template <typename... Ts> static auto foo(const std::tuple<Ts...> &t) {
+    return make_trivially_copyable_tuple<Ts...>{}(t);
+  }
+
+  template <> struct make_trivially_copyable_tuple<> {
+    trivially_copyable_tuple<> operator()(const std::tuple<> &) { return {}; }
+  };
+
+  template <typename T, size_t... Is>
+  static auto drop_first(const T &t, std::index_sequence<Is...>) {
+    return std::tuple{std::get<Is + 1>(t)...};
+  }
+
+  template <typename T, typename... Ts>
+  struct make_trivially_copyable_tuple<T, Ts...> {
+    trivially_copyable_tuple<T, Ts...>
+    operator()(const std::tuple<T, Ts...> &t) {
+      return {std::get<0>(t),
+              foo(drop_first(t, std::index_sequence_for<Ts...>()))};
+    }
+  };
+
+  template <typename... Ts>
+  void serialize_tuple(const std::tuple<Ts...> &value) {
+    serialize(make_trivially_copyable_tuple<Ts...>{}(value));
+  }
+
+  template <typename... Ts> std::tuple<Ts...> deserialize_tuple() {
+    static_assert(
+        std::is_trivially_copyable_v<trivially_copyable_tuple<Ts...>>);
+    return deserialize<trivially_copyable_tuple<Ts...>>().to_tuple();
+  }
 };
 
 } // namespace
@@ -108,17 +165,21 @@ public:
 template <typename F, typename... Args>
   requires std::is_trivially_copyable_v<std::invoke_result_t<F, Args...>>
 const std::optional<std::invoke_result_t<F, Args...>>
-timeout(std::chrono::milliseconds duration, F f, const Args&... args) {
+timeout(std::chrono::milliseconds duration, F f, const Args &...args) {
   pipe_fds retval_pipe;
+  pipe_fds args_pipe;
+  using tuple_t = std::tuple<Args...>;
   using res_t = std::invoke_result_t<F, Args...>;
   if (auto subprocess = SubprocessHandle::fork(); subprocess.has_value()) {
+    args_pipe.serialize_tuple(tuple_t(args...));
     if (retval_pipe.poll_read(duration)) {
       return retval_pipe.deserialize<res_t>();
     }
     subprocess->kill();
     return std::nullopt;
   } else {
-    retval_pipe.serialize(f(args...));
+    retval_pipe.serialize(
+        std::apply(f, args_pipe.deserialize_tuple<Args...>()));
     std::exit(0);
   }
 };
