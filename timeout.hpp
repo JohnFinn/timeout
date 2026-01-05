@@ -80,10 +80,12 @@ public:
   }
 
   ~pipe_fds() noexcept(false) {
-    if (close(read_fd()) != 0)
-      throw_errno();
-    if (close(write_fd()) != 0)
-      throw_errno();
+    if (_fds) {
+      if (close(read_fd()) != 0)
+        throw_errno();
+      if (close(write_fd()) != 0)
+        throw_errno();
+    }
   }
 
   void read(std::span<std::byte> span) {
